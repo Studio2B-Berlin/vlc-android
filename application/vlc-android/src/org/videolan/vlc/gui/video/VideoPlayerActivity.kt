@@ -33,7 +33,6 @@ import android.content.res.Configuration
 import android.media.AudioManager
 import android.net.Uri
 import android.os.*
-import android.support.v4.media.session.PlaybackStateCompat
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.DisplayMetrics
@@ -51,6 +50,7 @@ import android.widget.SeekBar
 import android.widget.SeekBar.OnSeekBarChangeListener
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -108,8 +108,16 @@ import org.videolan.vlc.util.*
 import org.videolan.vlc.util.FileUtils
 import org.videolan.vlc.viewmodels.BookmarkModel
 import org.videolan.vlc.viewmodels.PlaylistModel
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.lang.Runnable
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.collections.ArrayList
 import kotlin.math.roundToInt
+import com.google.gson.Gson
 
 @Suppress("DEPRECATION")
 @ObsoleteCoroutinesApi
@@ -151,6 +159,12 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     var lockBackButton = false
     private var wasPaused = false
     private var savedTime: Long = -1
+
+    /**
+     * Vars for storing the viewer Statistics
+     */
+
+    private var statisticsTitle: String = ""
 
     /**
      * For uninterrupted switching between audio and video mode
@@ -376,6 +390,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
     override fun createConfigurationContext(overrideConfiguration: Configuration) = super.createConfigurationContext(overrideConfiguration).getContextWithLocale(AppContextProvider.locale)
 
+    @SuppressLint("RestrictedApi")
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -862,6 +877,60 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
     open fun exit(resultCode: Int) {
         if (isFinishing) return
         val resultIntent = Intent(ACTION_RESULT)
+
+        val TAG = "STATISTICS"
+        //Calculates the video progres in percent (How much of the video did the user see?)
+        val currentVideoTime = service?.playlistManager?.player?.getCurrentTime()
+        val totalVideoTime = service?.playlistManager?.player?.getLength()
+        var progress: Float = 0f
+        if(currentVideoTime != null && totalVideoTime != null) {
+            progress = ((currentVideoTime.toFloat() / totalVideoTime.toFloat()) * 100f)
+            if(progress.isNaN()) {  //NaN happens when the media has fully played, so we report it as 100% played.
+                Log.i(TAG, "NAN")
+                progress = 100F
+            }
+        }
+
+        val currentTime = java.util.Calendar.getInstance().time
+
+        val pattern = "MM/dd/yyyy HH:mm:ss"
+
+        // Create an instance of SimpleDateFormat used for formatting
+        // the string representation of date according to the chosen pattern
+        val df: DateFormat = SimpleDateFormat(pattern)
+
+        // Get the today date using Calendar object.
+
+        val today = Calendar.getInstance().time
+        // Using DateFormat format method we can create a string
+        // representation of a date with the defined format.
+        val todayAsString: String = df.format(today)
+
+        val newViewStatistic:ViewStatistic = ViewStatistic(statisticsTitle, progress.roundToInt(), todayAsString)
+
+        //Check if the external storage is mounted & writable
+        val state = Environment.getExternalStorageState()
+        if (Environment.MEDIA_MOUNTED.equals(state))
+        {
+            //Opens the existing statistics JSON
+            var allStatistics = mutableListOf<ViewStatistic>()
+            val jsonContent:ViewStatistics? = readJSONFromDisk()
+
+            //Reads the Viewcounts from the JSON back into a Kotlin-Friendly list
+            if(jsonContent != null){
+                for (vs in jsonContent.vStats){
+                    allStatistics.add(vs)
+                }
+            }
+
+            //Adds the new statistic to the list and saves the file
+            allStatistics.add(newViewStatistic)
+            val newViewStatistics:ViewStatistics = ViewStatistics(allStatistics)
+            saveJSONToDisk(newViewStatistics)
+        }
+
+        //Code below is normal VLC-Code
+
         videoUri?.let { uri ->
             service?.run {
                 if (AndroidUtil.isNougatOrLater)
@@ -873,6 +942,54 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
             }
             setResult(resultCode, resultIntent)
             finish()
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.KITKAT)
+    private fun readJSONFromDisk(): ViewStatistics? {
+        var content:String = ""
+        val TAG = "STATISTICS"
+
+        //Try reading the JSON file on disk into a string
+        val textFile = File(getExternalFilesDir(null), "viewCountStats.json")
+        try {
+            content = textFile.readText()
+            Log.i(TAG, "Content of openend file is: " + content)
+        } catch (e: IOException) {
+            Log.i(TAG, "Statistics JSON file could not be openend, assuming initial operation")
+            e.printStackTrace()
+            return null
+        }
+
+        //If the JSON file exists but is empty, it was cleared by the server when the data has been copied successfully
+        if(content.length == 0){
+            Log.i(TAG, "Statistics JSON File Empty! Starting new list")
+            return null
+        }
+
+
+        //Read the JSON back into a ViewStatistics class and return that class
+        else{
+            val gO = Gson()
+            val statistics:ViewStatistics = gO.fromJson(content, ViewStatistics::class.java)
+            return statistics
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.KITKAT)
+    private fun saveJSONToDisk(allVS: ViewStatistics){
+        val gO:Gson = Gson()
+        val newContent:String = gO.toJson(allVS)
+
+        val TAG = "STATISTICS"
+
+        val textFile = File(getExternalFilesDir(null), "viewCountStats.json")
+        try {
+            val fos = FileOutputStream(textFile)
+            fos.write(newContent.toByteArray())
+            fos.close()
+        } catch (e: IOException) {
+            e.printStackTrace()
         }
     }
 
@@ -1828,6 +1945,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
                 service.loadLastPlaylist(PLAYLIST_TYPE_VIDEO_RESUME)
             }
             if (itemTitle != null) title = itemTitle
+            if (itemTitle != null) statisticsTitle = itemTitle
             if (overlayDelegate.isHudRightBindingInitialized()) {
                 overlayDelegate.hudRightBinding.playerOverlayTitle.text = title
             }

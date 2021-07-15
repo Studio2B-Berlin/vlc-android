@@ -61,6 +61,8 @@ android {
             initWith debug
             matchingFallbacks = ['debug']
         }
+        buildS2B {
+        }
     }
 }
 
