@@ -49,6 +49,8 @@ android {
             initWith debug
             matchingFallbacks = ['debug']
         }
+        buildS2B {
+        }
     }
 
     // Make per-variant version code

@@ -86,6 +86,8 @@ android {
             initWith debug
             matchingFallbacks = ['debug']
         }
+        buildS2B {
+        }
     }
 
     sourceSets.main {
@@ -192,6 +194,8 @@ dependencies {
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$rootProject.ext.kotlinx_version"
 
     implementation 'nl.dionsegijn:konfetti:1.2.2'
+    implementation 'com.google.code.gson:gson:2.8.7'
+
 
     // Tests
     androidTestApi "androidx.test.espresso:espresso-contrib:$rootProject.espressoVersion"
