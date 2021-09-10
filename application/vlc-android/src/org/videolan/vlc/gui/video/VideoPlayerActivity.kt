@@ -893,7 +893,7 @@ open class VideoPlayerActivity : AppCompatActivity(), PlaybackService.Callback, 
 
         val currentTime = java.util.Calendar.getInstance().time
 
-        val pattern = "MM/dd/yyyy HH:mm:ss"
+        val pattern = "dd/MM/yyyy HH:mm:ss"
 
         // Create an instance of SimpleDateFormat used for formatting
         // the string representation of date according to the chosen pattern
